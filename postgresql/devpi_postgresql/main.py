@@ -11,7 +11,6 @@ import os
 import pg8000
 import py
 import time
-import ssl
 
 
 devpiserver_hookimpl = HookimplMarker("devpiserver")
@@ -168,6 +167,7 @@ class Connection:
 
 
 class Storage:
+    SSL_OPT_KEYS = ("ssl_check_hostname", "ssl_ca_certs", "ssl_certfile", "ssl_keyfile")
     database = "devpi"
     host = "localhost"
     port = "5432"
@@ -183,15 +183,9 @@ class Storage:
             if key in settings:
                 setattr(self, key, settings[key])
 
-        if any(key in settings for key in ("ssl_cert_reqs", "ssl_ca_certs",
-                                           "ssl_certfile", "ssl_keyfile")):
+        if any(key in settings for key in self.SSL_OPT_KEYS):
             self.ssl_opts = ssl_opts = {}
-            if "ssl_cert_reqs" in settings:
-                ssl_opts["cert_reqs"] = {
-                    "cert_optional": ssl.CERT_OPTIONAL,
-                    "cert_required": ssl.CERT_REQUIRED}.get(settings["ssl_cert_reqs"])
-
-            for key in ("ssl_ca_certs", "ssl_certfile", "ssl_keyfile"):
+            for key in self.SSL_OPT_KEYS:
                 if key in settings:
                     ssl_opts[key[4:]] = settings[key]
 
