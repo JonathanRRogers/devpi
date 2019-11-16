@@ -1,19 +1,9 @@
 dist: xenial
 language: python
 sudo: false
-python:
-  - "2.7"
-  - "3.4"
-  - "3.7"
-  - "nightly"
-  - "pypy2.7-7.1.1"
-  - "pypy3.5-7.0"
 env:
   global:
     - DEVPI_INDEX="devpi-travis/${TRAVIS_REPO_SLUG/\//_}_${TRAVIS_BRANCH/\//_}"
-  matrix:
-    - PROJECT=common
-    - PROJECT=client
 install: travis_retry pip install tox tox-travis devpi-client
 script:
   - export DEVPI_INDEX_URL="https://pypi.org/simple/"
@@ -22,8 +12,6 @@ script:
   - cd $PROJECT
   - travis_retry tox -i "${DEVPI_INDEX_URL}" --pre -- -v
 stages:
-  - name: create packages
-    if: type IN (push, api, cron)
   - test
 jobs:
   include:
@@ -62,6 +50,7 @@ jobs:
     #
     #########################
     - stage: test
+      if: branch = master
       python: "2.7"
       env: PROJECT=server
       addons:
@@ -70,6 +59,7 @@ jobs:
             - nginx
 
     - stage: test
+      if: branch = master
       python: "3.4"
       env: PROJECT=server
       addons:
@@ -78,6 +68,7 @@ jobs:
             - nginx
 
     - stage: test
+      if: branch = master
       python: "3.7"
       env: PROJECT=server
       addons:
@@ -86,6 +77,7 @@ jobs:
             - nginx
 
     - stage: test
+      if: branch = master
       python: "nightly"
       env: PROJECT=server
       addons:
@@ -94,6 +86,7 @@ jobs:
             - nginx
 
     - stage: test
+      if: branch = master
       python: "pypy2.7-7.1.1"
       env: PROJECT=server
       addons:
@@ -102,6 +95,7 @@ jobs:
             - nginx
 
     - stage: test
+      if: branch = master
       python: "pypy3.5-7.0"
       env: PROJECT=server
       addons:
@@ -115,18 +109,22 @@ jobs:
     #
     #########################
     - stage: test
+      if: branch = master
       python: "3.4"
       env: PROJECT=web
 
     - stage: test
+      if: branch = master
       python: "3.7"
       env: PROJECT=web
 
     - stage: test
+      if: branch = master
       python: "nightly"
       env: PROJECT=web
 
     - stage: test
+      if: branch = master
       python: "pypy3.5-7.0"
       env: PROJECT=web
 
