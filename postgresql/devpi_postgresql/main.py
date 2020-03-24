@@ -188,13 +188,13 @@ class Storage:
         if any(key in settings for key in self.SSL_OPT_KEYS):
             self.ssl_context = ssl_context = ssl.create_default_context(
                 cafile=settings.get('ssl_ca_certs'))
+
             if 'ssl_certfile' in settings:
                 ssl_context.load_cert_chain(settings['ssl_certfile'],
                                             keyfile=settings.get('ssl_keyfile'))
-            if (
-                'ssl_check_hostname' in settings
-                and not strtobool(settings['ssl_check_hostname'])
-            ):
+
+            check_hostname = settings.get('ssl_check_hostname')
+            if check_hostname is not None and not strtobool(check_hostname):
                 ssl_context.check_hostname = False
 
         self.basedir = basedir
