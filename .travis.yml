@@ -58,6 +58,7 @@ jobs:
       env: PROJECT=common
 
     - stage: test
+      if: branch = master
       python: "pypy2.7-7.1.1"
       env: PROJECT=common
 
@@ -77,6 +78,7 @@ jobs:
       env: PROJECT=common
 
     - stage: test
+      if: branch = master
       python: "pypy3.6-7.1.1"
       env: PROJECT=common
 
@@ -138,14 +140,17 @@ jobs:
     #########################
 
     - stage: test
+      if: branch = master
       python: "2.7"
       env: PROJECT=client
 
     - stage: test
+      if: branch = master
       python: "pypy2.7-7.1.1"
       env: PROJECT=client
 
     - stage: test
+      if: branch = master
       python: "3.4"
       env: PROJECT=client
 
@@ -154,10 +159,12 @@ jobs:
       env: PROJECT=client
 
     - stage: test
+      if: branch = master
       python: "nightly"
       env: PROJECT=client
 
     - stage: test
+      if: branch = master
       python: "pypy3.6-7.1.1"
       env: PROJECT=client
 
