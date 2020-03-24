@@ -28,7 +28,7 @@ setup(
     description="devpi-web: a web view for devpi-server",
     long_description="\n\n".join([README, CHANGELOG]),
     url="http://doc.devpi.net",
-    version='4.0.1.dev0',
+    version='4.0.2',
     maintainer="Holger Krekel, Florian Schulze",
     maintainer_email="holger@merlinux.eu",
     license="MIT",
@@ -43,7 +43,7 @@ setup(
         "Programming Language :: Python :: Implementation :: PyPy",
         "Topic :: Internet :: WWW/HTTP :: WSGI :: Application"] + [
             "Programming Language :: Python :: %s" % x
-            for x in "3.4 3.5 3.6 3.7".split()],
+            for x in "3.4 3.5 3.6 3.7 3.8".split()],
     entry_points={
         'console_scripts': [
             "devpi-clear-search-index = devpi_web.clear_index:clear_index"],

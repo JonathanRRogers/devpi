@@ -373,7 +373,7 @@ class PyPIStage(BaseStage):
         if self.offline and links is None:
             raise self.UpstreamError("offline mode")
         if self.offline or not is_expired:
-            if project not in self._offline_logging:
+            if self.offline and project not in self._offline_logging:
                 threadlog.debug(
                     "using stale links for %r due to offline mode", project)
                 self._offline_logging.add(project)
@@ -531,6 +531,8 @@ class PyPIStage(BaseStage):
                 if not verdata:
                     verdata['name'] = project
                     verdata['version'] = version
+                if sm.require_python is not None:
+                    verdata['requires_python'] = sm.require_python
                 elinks = verdata.setdefault("+elinks", [])
                 entrypath = sm._url.path
                 elinks.append({"rel": "releasefile", "entrypath": entrypath})

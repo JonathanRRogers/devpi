@@ -47,7 +47,7 @@ def make_file_url(basename, content, stagename=None, baseurl="http://localhost/"
         s = s.format(stage=stagename)
     return s
 
-class TimeoutQueue(BaseQueue):
+class _TimeoutQueue(BaseQueue):
     def get(self, timeout=2):
         return BaseQueue.get(self, timeout=timeout)
 
@@ -59,20 +59,10 @@ def _clear():
     thread_clear_log()
 
 
-@pytest.yield_fixture
-def pool():
-    from devpi_server.mythread  import ThreadPool
-    pool = ThreadPool()
-    yield pool
-    pool.shutdown()
-
 @pytest.fixture
-def queue():
-    return TimeoutQueue()
+def TimeoutQueue():
+    return _TimeoutQueue
 
-@pytest.fixture
-def Queue():
-    return TimeoutQueue
 
 @pytest.fixture()
 def caplog(caplog):
@@ -96,13 +86,12 @@ def caplog(caplog):
     return caplog
 
 @pytest.fixture
-def gentmp(request):
-    tmpdirhandler = request.config._tmpdirhandler
+def gentmp(request, tmpdir_factory):
     cache = []
     def gentmp(name=None):
         if not cache:
             prefix = re.sub(r"[\W]", "_", request.node.name)
-            basedir = tmpdirhandler.mktemp(prefix, numbered=True)
+            basedir = tmpdir_factory.mktemp(prefix, numbered=True)
             cache.append(basedir)
         else:
             basedir = cache[0]
@@ -208,7 +197,10 @@ def makexom(request, gentmp, httpget, monkeypatch, storage_info):
         for plugin in plugins:
             pm.register(plugin)
         serverdir = gentmp()
-        fullopts = ["devpi-server", "--serverdir", serverdir] + list(opts)
+        if "--serverdir" in opts:
+            fullopts = ["devpi-server"] + list(opts)
+        else:
+            fullopts = ["devpi-server", "--serverdir", serverdir] + list(opts)
         if request.node.get_closest_marker("with_replica_thread"):
             fullopts.append("--master=http://localhost")
         if not request.node.get_closest_marker("no_storage_option"):
@@ -234,10 +226,9 @@ def makexom(request, gentmp, httpget, monkeypatch, storage_info):
                     lambda self: set())
             add_pypistage_mocks(monkeypatch, httpget)
         # initialize default indexes
-        from devpi_server.main import set_default_indexes
+        from devpi_server.main import init_default_indexes
         if not xom.config.args.master_url:
-            with xom.keyfs.transaction(write=True):
-                set_default_indexes(xom.model)
+            init_default_indexes(xom)
         if request.node.get_closest_marker("with_replica_thread"):
             from devpi_server.replica import ReplicaThread
             rt = ReplicaThread(xom)
@@ -350,9 +341,6 @@ def httpget(pypiurls):
 
     return MockHTTPGet()
 
-@pytest.fixture
-def filestore(xom):
-    return xom.filestore
 
 @pytest.fixture
 def keyfs(xom):
@@ -912,7 +900,7 @@ def wait_for_port(host, port, timeout=60):
         "The port %s on host %s didn't become accessible" % (port, host))
 
 
-@pytest.yield_fixture(scope="module")
+@pytest.yield_fixture(scope="class")
 def server_directory():
     import tempfile
     srvdir = py.path.local(
@@ -973,10 +961,11 @@ def master_serverdir(server_directory):
 @pytest.yield_fixture(scope="class")
 def master_host_port(request, call_devpi_in_dir, master_serverdir, server_directory, storage_info):
     import base64
-    import os
+    import secrets
     secretfile = server_directory.join('testserver.secret')
     if not secretfile.exists():
-        secretfile.write(base64.b64encode(os.urandom(32)))
+        secretfile.write(base64.b64encode(secrets.token_bytes(32)))
+        secretfile.chmod(0o600)
     host = 'localhost'
     port = get_open_port(host)
     args = [

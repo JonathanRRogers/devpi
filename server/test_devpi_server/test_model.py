@@ -115,6 +115,11 @@ def test_get_mirror_whitelist_info(model, pypistage):
         blocked_by_mirror_whitelist=None)
 
 
+@pytest.fixture
+def queue(TimeoutQueue):
+    return TimeoutQueue()
+
+
 class TestStage:
     def test_create_and_delete(self, model):
         user = model.create_user("hello", password="123")
@@ -495,18 +500,42 @@ class TestStage:
         ('foo,bar', ['foo', 'bar']),
         ('*', ['*'])])
     def test_whitelist_setting(self, pypistage, stage, setting, expected):
-        from devpi_server.model import InvalidIndexconfig
         stage.modify(mirror_whitelist=setting)
         ixconfig = stage.get()
         # BBB old devpi versions had pypi_whitelist, here we check that it's gone
         assert 'pypi_whitelist' not in ixconfig
         assert ixconfig['mirror_whitelist'] == expected
-        with pytest.raises(InvalidIndexconfig):
-            stage.modify(pypi_whitelist=setting)
-        with pytest.raises(InvalidIndexconfig):
-            stage.modify(pypi_whitelist=setting, mirror_whitelist=[])
-        with pytest.raises(InvalidIndexconfig):
-            stage.modify(pypi_whitelist=setting, mirror_whitelist=setting)
+
+    def test_legacy_pypi_whitelist(self, stage):
+        assert stage.ixconfig['volatile'] is True
+        # now we try to modify the index with the old pypi_whitelist setting
+        # which can still exist in dbs and will be sent by devpi-client
+        stage.modify(pypi_whitelist=[], volatile=False)
+        # if all went well, volatile should be changed
+        assert stage.ixconfig['volatile'] is False
+        # and pypi_whitelist ignored
+        assert 'pypi_whitelist' not in stage.ixconfig
+
+    @pytest.mark.notransaction
+    def test_legacy_pypi_whitelist_removed(self, xom):
+        with xom.keyfs.transaction(write=True):
+            user = xom.model.create_user("hello", password="123")
+            config = udict(index="world", bases=(), type="stage", volatile=True)
+            user.create_stage(**config)
+            with user.key.update() as userconfig:
+                # here we inject the legacy setting
+                userconfig['indexes']['world']['pypi_whitelist'] = []
+            del user
+        with xom.keyfs.transaction(write=True):
+            stage = xom.model.getstage('hello/world')
+            assert stage.ixconfig['volatile'] is True
+            assert 'pypi_whitelist' in stage.ixconfig
+            new_config = dict(stage.ixconfig)
+            new_config['volatile'] = False
+            # now we try to modify the index
+            stage.modify(**new_config)
+            assert stage.ixconfig['volatile'] is False
+            assert 'pypi_whitelist' not in stage.ixconfig
 
     def test_package_not_in_mirror_whitelist_all(self, monkeypatch, pypistage, stage):
         stage.modify(mirror_whitelist="*", bases=(pypistage.name,))
@@ -542,16 +571,12 @@ class TestStage:
         assert not stage.has_project_perstage("some-xyz")
 
     def test_delete_not_existing(self, stage, bases):
-        with pytest.raises(stage.NotFound) as excinfo:
+        with pytest.raises(stage.NotFound, match="^project.*not found"):
             stage.del_versiondata("hello", "1.0")
-        assert excinfo.value.msg.startswith("project")
-        assert "not found" in excinfo.value.msg
         register_and_store(stage, "hello-1.0.zip")
         stage.del_versiondata("hello", "1.0", cleanup=False)
-        with pytest.raises(stage.NotFound) as excinfo:
+        with pytest.raises(stage.NotFound, match="^version.*not found"):
             stage.del_versiondata("hello", "1.0")
-        assert excinfo.value.msg.startswith("version")
-        assert "not found" in excinfo.value.msg
 
     def test_releasefile_sorting(self, stage, bases):
         register_and_store(stage, "some-1.1.zip")
@@ -872,9 +897,8 @@ class TestStage:
         with xom.keyfs.transaction(write=True):
             stage = user.create_stage(**udict(
                 index="world", bases=(), type="stage", volatile=True))
-            with pytest.raises(KeyError) as e:
+            with pytest.raises(KeyError, match='not commited yet'):
                 stage.get_last_change_serial_perstage()
-            assert 'not commited yet' in str(e.value)
         assert current_serial == xom.keyfs.get_current_serial() - 1
         current_serial = xom.keyfs.get_current_serial()
         with xom.keyfs.transaction(write=False):
@@ -1134,10 +1158,6 @@ class TestLinkStore:
 
 
 class TestUsers:
-
-    def test_secret(self, xom, model):
-        xom.keyfs.basedir.ensure(".something")
-        assert model.get_user(".something") is None
 
     def test_create_and_validate(self, model):
         user = model.get_user("user")

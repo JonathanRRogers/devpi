@@ -1,6 +1,5 @@
 from __future__ import unicode_literals
 from collections import defaultdict
-from devpi_common.types import cached_property
 from devpi_common.validation import normalize_name
 from devpi_server.log import threadlog as log
 from devpi_server.log import thread_push_log
@@ -232,6 +231,9 @@ class IndexingSharedData(object):
         self.Empty = Empty
         self.queue = PriorityQueue()
         self.error_queue = PriorityQueue()
+        self.last_added = None
+        self.last_errored = None
+        self.last_processed = None
 
     def add(self, project, serial):
         # note the negated serial for the PriorityQueue
@@ -240,6 +242,7 @@ class IndexingSharedData(object):
             -serial,
             project.indexname,
             (project.name,)))
+        self.last_added = time.time()
 
     def next_ts(self, delay):
         return time.time() + delay
@@ -267,10 +270,12 @@ class IndexingSharedData(object):
             names.append(project.name)
             if len(names) >= self.QUEUE_MAX_NAMES:
                 self.queue.put((is_from_mirror, -serial, indexname, names))
+                self.last_added = time.time()
                 names = []
         if names:
             # note the negated serial for the PriorityQueue
             self.queue.put((is_from_mirror, -serial, indexname, names))
+            self.last_added = time.time()
 
     def queue_projects(self, projects, serial, searcher):
         log.info("Queuing projects for index update")
@@ -336,6 +341,7 @@ class IndexingSharedData(object):
                 delay=min(
                     delay * self.ERROR_QUEUE_DELAY_MULTIPLIER,
                     self.ERROR_QUEUE_MAX_DELAY))
+            self.last_errored = time.time()
         finally:
             self.error_queue.task_done()
 
@@ -355,8 +361,10 @@ class IndexingSharedData(object):
             handler(is_from_mirror, serial, indexname, names)
         except Exception:
             self.add_errored(is_from_mirror, serial, indexname, names)
+            self.last_errored = time.time()
         finally:
             self.queue.task_done()
+            self.last_processed = time.time()
 
     def wait(self):
         self.queue.join()
@@ -376,9 +384,10 @@ class IndexerThread(object):
             len(names), indexname, serial)
         ix = get_indexer(self.xom)
         counter = itertools.count()
-        main_keys = ix.project_ix.schema.names()
-        writer = ix.project_ix.writer()
-        searcher = ix.project_ix.searcher()
+        project_ix = ix.get_project_ix()
+        main_keys = project_ix.schema.names()
+        writer = project_ix.writer()
+        searcher = project_ix.searcher()
         try:
             with self.xom.keyfs.transaction(write=False) as tx:
                 stage = self.xom.model.getstage(indexname)
@@ -438,7 +447,7 @@ class InitialQueueThread(object):
         thread_push_log("[IDXQ]")
         with self.xom.keyfs.transaction(write=False) as tx:
             indexer = get_indexer(self.xom)
-            searcher = indexer.project_ix.searcher()
+            searcher = indexer.get_project_ix().searcher()
             self.shared_data.queue_projects(
                 iter_projects(self.xom), tx.at_serial, searcher)
 
@@ -490,12 +499,12 @@ class Index(object):
         shutil.rmtree(self.index_path)
 
     def needs_reindex(self):
-        if self.project_ix.is_empty():
+        project_ix = self.get_project_ix()
+        if project_ix.is_empty():
             return True
-        return self.project_ix.schema != self.project_schema
+        return project_ix.schema != self.project_schema
 
-    @cached_property
-    def project_ix(self):
+    def get_project_ix(self):
         return self.ix('project')
 
     @property
@@ -518,8 +527,9 @@ class Index(object):
     def delete_projects(self, projects):
         counter = itertools.count()
         count = next(counter)
-        writer = self.project_ix.writer()
-        searcher = self.project_ix.searcher()
+        project_ix = self.get_project_ix()
+        writer = project_ix.writer()
+        searcher = project_ix.searcher()
         for project in projects:
             path = u"/%s/%s" % (project.indexname, project.name)
             count = next(counter)
@@ -598,8 +608,9 @@ class Index(object):
                 next(counter)
 
     def update_projects(self, projects, clear=False):
+        project_ix = self.get_project_ix()
         self.shared_data.queue_projects(
-            projects, self.xom.keyfs.tx.at_serial, self.project_ix.searcher())
+            projects, self.xom.keyfs.tx.at_serial, project_ix.searcher())
 
     def _process_results(self, raw, page=1):
         items = []
@@ -727,13 +738,13 @@ class Index(object):
 
     def _query_projects(self, searcher, querystring, page=1):
         parser = QueryParser(
-            "text", self.project_ix.schema,
+            "text", self.project_schema,
             plugins=self._query_parser_plugins())
         query = parser.parse(querystring)
         return self._search_projects(searcher, query, page=page)
 
     def search_projects(self, query, page=1):
-        searcher = self.project_ix.searcher()
+        searcher = self.get_project_ix().searcher()
         try:
             result = self._process_results(
                 self._search_projects(searcher, query, page=page))
@@ -744,7 +755,7 @@ class Index(object):
             return result
 
     def query_projects(self, querystring, page=1):
-        searcher = self.project_ix.searcher()
+        searcher = self.get_project_ix().searcher()
         try:
             result = self._process_results(
                 self._query_projects(searcher, querystring, page=page))
@@ -859,3 +870,29 @@ def devpiserver_metrics(request):
             ('devpi_web_whoosh_index_queue_size', 'gauge', shared_data.queue.qsize()),
             ('devpi_web_whoosh_index_error_queue_size', 'gauge', shared_data.error_queue.qsize())])
     return result
+
+
+@hookimpl
+def devpiweb_get_status_info(request):
+    indexer = request.registry.get('search_index')
+    shared_data = getattr(indexer, 'shared_data', None)
+    msgs = []
+    if isinstance(shared_data, IndexingSharedData):
+        now = time.time()
+        qsize = shared_data.queue.qsize()
+        if qsize:
+            last_activity_seconds = 0
+            if shared_data.last_processed is None and shared_data.last_added:
+                last_activity_seconds = (now - shared_data.last_added)
+            elif shared_data.last_processed:
+                last_activity_seconds = (now - shared_data.last_processed)
+            if last_activity_seconds > 300:
+                msgs.append(dict(status="fatal", msg="Nothing indexed for more than 5 minutes"))
+            elif last_activity_seconds > 60:
+                msgs.append(dict(status="warn", msg="Nothing indexed for more than 1 minute"))
+            if qsize > 10:
+                msgs.append(dict(status="warn", msg="%s items in index queue" % qsize))
+        error_qsize = shared_data.error_queue.qsize()
+        if error_qsize:
+            msgs.append(dict(status="warn", msg="Errors during indexing"))
+    return msgs

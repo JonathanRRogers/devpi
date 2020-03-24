@@ -112,8 +112,6 @@ def wait_for_port(host, port, timeout=60):
 
 def find_python3():
     locations = [
-        "C:\\Python34-x64\\python.exe",
-        "C:\\Python34\\python.exe",
         "C:\\Python35-x64\\python.exe",
         "C:\\Python35\\python.exe",
         "C:\\Python36-x64\\python.exe",
@@ -130,11 +128,10 @@ def find_python3():
         except subprocess.CalledProcessError:
             continue
     names = [
-        'python3',
-        'python3.4',
         'python3.5',
         'python3.6',
-        'python3.7']
+        'python3.7',
+        'python3']
     for name in names:
         path = py.path.local.sysfind(name)
         if not path:
@@ -160,7 +157,7 @@ def get_venv_script(venv_path, script_names):
 
 
 @pytest.fixture(scope="session")
-def server_executable(request):
+def server_executable(tmpdir_factory):
     # first try installed devpi-server for quick runs during development
     path = py.path.local.sysfind("devpi-server")
     if path:
@@ -174,7 +171,7 @@ def server_executable(request):
     if sys.platform != "win32":
         env.pop("PATH", None)
     # create a virtualenv with Python 3
-    venv_path = request.config._tmpdirhandler.mktemp("server_venv")
+    venv_path = tmpdir_factory.mktemp("server_venv")
     subprocess.check_call(
         [sys.executable, '-m', 'virtualenv', '-p', python3, str(venv_path)],
         env=env)
@@ -225,13 +222,13 @@ def _liveserver(clientdir, server_executable, server_version):
 
 
 @pytest.yield_fixture(scope="session")
-def url_of_liveserver(request, server_executable, server_version):
+def url_of_liveserver(request, server_executable, server_version, tmpdir_factory):
     if request.config.option.fast:
         pytest.skip("not running functional tests in --fast mode")
     if request.config.option.live_url:
         yield URL(request.config.option.live_url)
         return
-    clientdir = request.config._tmpdirhandler.mktemp("liveserver")
+    clientdir = tmpdir_factory.mktemp("liveserver")
     (p, url) = _liveserver(clientdir, server_executable, server_version)
     try:
         yield url
@@ -241,10 +238,10 @@ def url_of_liveserver(request, server_executable, server_version):
 
 
 @pytest.yield_fixture(scope="session")
-def url_of_liveserver2(request, server_executable, server_version):
+def url_of_liveserver2(request, server_executable, server_version, tmpdir_factory):
     if request.config.option.fast:
         pytest.skip("not running functional tests in --fast mode")
-    clientdir = request.config._tmpdirhandler.mktemp("liveserver2")
+    clientdir = tmpdir_factory.mktemp("liveserver2")
     (p, url) = _liveserver(clientdir, server_executable, server_version)
     try:
         yield url
@@ -652,11 +649,10 @@ def loghub(tmpdir):
     return hub
 
 @pytest.fixture(scope="session")
-def makehub(request):
-    handler = request.config._tmpdirhandler
+def makehub(tmpdir_factory):
     def mkhub(arglist):
         arglist = [str(x) for x in arglist]
-        tmp = handler.mktemp("hub")
+        tmp = tmpdir_factory.mktemp("hub")
         for x in arglist:
             if "--clientdir" in x:
                 break

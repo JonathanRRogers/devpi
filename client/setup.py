@@ -5,7 +5,7 @@ import os
 import re
 import sys
 
-from setuptools import setup, find_packages
+from setuptools import setup
 
 
 def get_changelog():
@@ -40,8 +40,8 @@ if __name__ == "__main__":
       description="devpi upload/install/... workflow commands for Python "
                   "developers",
       long_description="\n\n".join([README, CHANGELOG]),
-      version='5.1.0',
-      packages=find_packages(),
+      version='5.1.1',
+      packages=['devpi'],
       install_requires=install_requires,
       extras_require=extras_require,
       url="https://github.com/devpi/devpi",
@@ -57,7 +57,7 @@ if __name__ == "__main__":
         "Programming Language :: Python :: Implementation :: PyPy",
         ] + [
             ("Programming Language :: Python :: %s" % x) for x in
-                "2.7 3.4 3.5 3.6 3.7".split()],
+                "2.7 3.4 3.5 3.6 3.7 3.8".split()],
       entry_points = {
         'console_scripts': [
           "devpi = devpi.main:main"],

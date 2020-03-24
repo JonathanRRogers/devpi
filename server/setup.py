@@ -4,7 +4,7 @@ import os
 import re
 import io
 import sys
-from setuptools import setup, find_packages
+from setuptools import setup
 
 
 def get_changelog():
@@ -28,6 +28,7 @@ if __name__ == "__main__":
 
     install_requires = ["py>=1.4.23",
                         "appdirs",
+                        "argon2-cffi",
                         "attrs",
                         "devpi_common<4,>=3.3.0",
                         "itsdangerous>=0.24",
@@ -37,6 +38,7 @@ if __name__ == "__main__":
                         "repoze.lru>=0.6",
                         "passlib[argon2]",
                         "pluggy>=0.6.0,<1.0",
+                        'python2-secrets;python_version<"3.6"',
                         'ruamel.yaml<=0.15.94;python_version=="3.4"',
                         "strictyaml",
                         ]
@@ -48,10 +50,14 @@ if __name__ == "__main__":
       keywords="pypi realtime cache server",
       long_description="\n\n".join([README, CHANGELOG]),
       url="http://doc.devpi.net",
-      version='5.2.1.dev0',
+      version='6.0.0.dev0',
       maintainer="Holger Krekel, Florian Schulze",
       maintainer_email="holger@merlinux.eu",
-      packages=find_packages(),
+      packages=[
+        'devpi_server',
+        'devpi_server.cfg',
+        'pytest_devpi_server',
+        'test_devpi_server'],
       include_package_data=True,
       zip_safe=False,
       license="MIT",
@@ -62,14 +68,16 @@ if __name__ == "__main__":
         "Intended Audience :: System Administrators",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python",
+        "Programming Language :: Python :: 3 :: Only",
         "Topic :: Internet :: WWW/HTTP",
         "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
         "Programming Language :: Python :: Implementation :: PyPy",
       ] + [
             ("Programming Language :: Python :: %s" % x)
-            for x in "2.7 3.4 3.5 3.6 3.7".split()],
+            for x in "3.4 3.5 3.6 3.7 3.8".split()],
       install_requires=install_requires,
       extras_require=extras_require,
+      python_requires='>=3.4',
       entry_points={
         'console_scripts': [
             "devpi-export = devpi_server.importexport:export",

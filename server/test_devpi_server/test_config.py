@@ -53,9 +53,12 @@ class TestParser:
 class TestConfig:
     def test_parse_secret(self, caplog, tmpdir):
         # create a secret file
-        p = tmpdir.join("secret")
-        secret = "qwoieuqwelkj123"
+        configdir = tmpdir.ensure_dir('config')
+        configdir.chmod(0o700)
+        p = configdir.join("secret")
+        secret = "qwoieuqwelkj1234qwoieuqwelkj1234"
         p.write(secret)
+        p.chmod(0o600)
         # and use it
         caplog.clear()
         config = make_config(["devpi-server", "--secretfile=%s" % p])
@@ -66,7 +69,7 @@ class TestConfig:
         assert len(recs) == 0
         # now check the default
         caplog.clear()
-        config = make_config(["devpi-server", "--serverdir", tmpdir.strpath])
+        config = make_config(["devpi-server", "--serverdir", configdir.strpath])
         assert config.args.secretfile is None
         assert config.secretfile is None
         assert config.secret != secret
@@ -76,7 +79,7 @@ class TestConfig:
         prev_secret = config.secret
         # each startup without a secret file creates a new random secret
         caplog.clear()
-        config = make_config(["devpi-server", "--serverdir", tmpdir.strpath])
+        config = make_config(["devpi-server", "--serverdir", configdir.strpath])
         assert config.args.secretfile is None
         assert config.secretfile is None
         assert config.secret != secret
@@ -88,11 +91,14 @@ class TestConfig:
         import warnings
         warnings.simplefilter("always")
         # setup secret file in old default location
-        p = tmpdir.join(".secret")
-        secret = "qwoieuqwelkj123"
+        configdir = tmpdir.ensure_dir('config')
+        configdir.chmod(0o700)
+        p = configdir.join(".secret")
+        secret = "qwoieuqwelkj1234qwoieuqwelkj1234"
         p.write(secret)
+        p.chmod(0o600)
         caplog.clear()
-        config = make_config(["devpi-server", "--serverdir", tmpdir.strpath])
+        config = make_config(["devpi-server", "--serverdir", configdir.strpath])
         # the existing file should be used
         assert config.args.secretfile is None
         assert config.secretfile == str(p)
@@ -102,6 +108,28 @@ class TestConfig:
         assert len(recwarn) == 1
         warning = recwarn.pop(Warning)
         assert 'deprecated existing secret' in warning.message.args[0]
+
+    def test_secret_complexity(self, tmpdir):
+        # create a secret file with too short secret
+        configdir = tmpdir.ensure_dir('config')
+        configdir.chmod(0o700)
+        p = configdir.join("secret")
+        secret = "qwoieuqwelkj123"
+        p.write(secret)
+        p.chmod(0o600)
+        # and use it
+        config = make_config(["devpi-server", "--secretfile=%s" % p])
+        with pytest.raises(Fatal, match="at least 32 characters"):
+            config.secret
+        # create a secret file which is too repetitive
+        p = configdir.join("secret")
+        secret = "12345" * 7
+        p.write(secret)
+        p.chmod(0o600)
+        # and use it
+        config = make_config(["devpi-server", "--secretfile=%s" % p])
+        with pytest.raises(Fatal, match="less repetition"):
+            config.secret
 
     def test_devpi_serverdir_env(self, tmpdir, monkeypatch):
         monkeypatch.setenv("DEVPI_SERVERDIR", tmpdir.strpath)
@@ -167,9 +195,8 @@ class TestConfig:
     def test_replica_role_missing_master_url(self, tmpdir):
         config = make_config(["devpi-server", "--role=replica",
                              "--serverdir", str(tmpdir)])
-        with pytest.raises(Fatal) as excinfo:
+        with pytest.raises(Fatal, match="need to specify --master-url"):
             config.init_nodeinfo()
-        assert "need to specify --master-url" in str(excinfo.value)
 
     def test_uuid(self, tmpdir):
         config = make_config(["devpi-server", "--serverdir", str(tmpdir)])

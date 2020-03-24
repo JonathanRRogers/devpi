@@ -11,8 +11,10 @@ from devpi_server.importexport import Exporter
 from devpi_server.importexport import IndexTree
 from devpi_server.importexport import do_export, do_import
 from devpi_server.main import Fatal
+from devpi_server.readonly import get_mutable_deepcopy
 from devpi_common.archive import Archive, zip_dict
 from devpi_common.metadata import Version
+from devpi_common.url import URL
 
 import devpi_server
 
@@ -69,23 +71,15 @@ def test_empty_export(tmpdir, xom):
         make_export(tmpdir, xom)
 
 
-@pytest.mark.parametrize("use_option", (False, True))
-def test_export_empty_serverdir(tmpdir, capfd, monkeypatch, use_option):
+def test_export_empty_serverdir(tmpdir, capfd, monkeypatch):
     from devpi_server.importexport import export
-    from devpi_server.main import main
     empty = tmpdir.join("empty").ensure(dir=True)
     export_dir = tmpdir.join("export")
     monkeypatch.setattr("devpi_server.main.configure_logging", lambda a: None)
-    if use_option:
-        ret = main([
-            "devpi-server",
-            "--serverdir", empty.strpath,
-            "--export", export_dir.strpath])
-    else:
-        ret = export(argv=[
-            "devpi-export",
-            "--serverdir", empty.strpath,
-            export_dir.strpath])
+    ret = export(argv=[
+        "devpi-export",
+        "--serverdir", empty.strpath,
+        export_dir.strpath])
     out, err = capfd.readouterr()
     assert empty.listdir() == []
     assert ret == 1
@@ -93,42 +87,28 @@ def test_export_empty_serverdir(tmpdir, capfd, monkeypatch, use_option):
     assert ("The path '%s' contains no devpi-server data" % empty) in err
 
 
-@pytest.mark.parametrize("use_option", (False, True))
-def test_export_import(tmpdir, capfd, monkeypatch, use_option):
+def test_export_import(tmpdir, capfd, monkeypatch):
+    from devpi_server.importexport import export
     from devpi_server.importexport import import_
     from devpi_server.init import init
-    from devpi_server.main import main
     monkeypatch.setattr("devpi_server.main.configure_logging", lambda a: None)
     clean = tmpdir.join("clean").ensure(dir=True)
-    if use_option:
-        ret = main(argv=[
-            "devpi-server",
-            "--init",
-            "--serverdir", clean.strpath])
-    else:
-        ret = init(argv=[
-            "devpi-init",
-            "--serverdir", clean.strpath])
+    ret = init(argv=[
+        "devpi-init",
+        "--serverdir", clean.strpath])
     assert ret == 0
-    export = tmpdir.join("export")
-    ret = main([
-        "devpi-server",
+    export_dir = tmpdir.join("export")
+    ret = export(argv=[
+        "devpi-export",
         "--serverdir", clean.strpath,
-        "--export", export.strpath])
+        export_dir.strpath])
     assert ret == 0
     import_dir = tmpdir.join("import")
-    if use_option:
-        ret = main(argv=[
-            "devpi-server",
-            "--serverdir", import_dir.strpath,
-            "--no-events",
-            "--import", export.strpath])
-    else:
-        ret = import_(argv=[
-            "devpi-import",
-            "--serverdir", import_dir.strpath,
-            "--no-events",
-            export.strpath])
+    ret = import_(argv=[
+        "devpi-import",
+        "--serverdir", import_dir.strpath,
+        "--no-events",
+        export_dir.strpath])
     assert ret == 0
     out, err = capfd.readouterr()
     assert os.listdir(clean.strpath) == os.listdir(import_dir.strpath)
@@ -136,45 +116,30 @@ def test_export_import(tmpdir, capfd, monkeypatch, use_option):
     assert err == ''
 
 
-@pytest.mark.parametrize("use_option", (False, True))
-def test_export_import_no_root_pypi(tmpdir, capfd, monkeypatch, use_option):
+def test_export_import_no_root_pypi(tmpdir, capfd, monkeypatch):
+    from devpi_server.importexport import export
     from devpi_server.importexport import import_
     from devpi_server.init import init
-    from devpi_server.main import main
     monkeypatch.setattr("devpi_server.main.configure_logging", lambda a: None)
     clean = tmpdir.join("clean").ensure(dir=True)
-    if use_option:
-        ret = main(argv=[
-            "devpi-server",
-            "--init",
-            "--serverdir", clean.strpath,
-            "--no-root-pypi"])
-    else:
-        ret = init(argv=[
-            "devpi-init",
-            "--serverdir", clean.strpath,
-            "--no-root-pypi"])
+    ret = init(argv=[
+        "devpi-init",
+        "--serverdir", clean.strpath,
+        "--no-root-pypi"])
     assert ret == 0
-    export = tmpdir.join("export")
-    ret = main([
+    export_dir = tmpdir.join("export")
+    ret = export(argv=[
         "devpi-server",
         "--serverdir", clean.strpath,
-        "--export", export.strpath])
+        export_dir.strpath])
     assert ret == 0
     # first we test regular import
     import_dir = tmpdir.join("import")
-    if use_option:
-        ret = main(argv=[
-            "devpi-server",
-            "--serverdir", import_dir.strpath,
-            "--no-events",
-            "--import", export.strpath])
-    else:
-        ret = import_(argv=[
-            "devpi-import",
-            "--serverdir", import_dir.strpath,
-            "--no-events",
-            export.strpath])
+    ret = import_(argv=[
+        "devpi-import",
+        "--serverdir", import_dir.strpath,
+        "--no-events",
+        export_dir.strpath])
     assert ret == 0
     out, err = capfd.readouterr()
     assert os.listdir(clean.strpath) == os.listdir(import_dir.strpath)
@@ -182,20 +147,12 @@ def test_export_import_no_root_pypi(tmpdir, capfd, monkeypatch, use_option):
     assert err == ''
     # now we add --no-root-pypi
     import_dir.remove()
-    if use_option:
-        ret = main(argv=[
-            "devpi-server",
-            "--serverdir", import_dir.strpath,
-            "--no-events",
-            "--no-root-pypi",
-            "--import", export.strpath])
-    else:
-        ret = import_(argv=[
-            "devpi-import",
-            "--serverdir", import_dir.strpath,
-            "--no-events",
-            "--no-root-pypi",
-            export.strpath])
+    ret = import_(argv=[
+        "devpi-import",
+        "--serverdir", import_dir.strpath,
+        "--no-events",
+        "--no-root-pypi",
+        export_dir.strpath])
     assert ret == 0
     out, err = capfd.readouterr()
     assert os.listdir(clean.strpath) == os.listdir(import_dir.strpath)
@@ -209,6 +166,7 @@ def test_import_on_existing_server_data(tmpdir, xom):
     assert not make_export(tmpdir, xom)
     with pytest.raises(Fatal):
         do_import(tmpdir, xom)
+
 
 class TestIndexTree:
     def test_basic(self):
@@ -232,84 +190,61 @@ class TestIndexTree:
 
 
 class TestImportExport:
-    @pytest.fixture(params=[False, True])  # switch between cmds and options
+    @pytest.fixture()
     def makeimpexp(self, request, makemapp, gentmp, storage_info):
         class ImpExp:
             def __init__(self, options=()):
+                from devpi_server.main import set_state_version
                 self.exportdir = gentmp()
                 self.testdatadir = py.path.local(
                     pkg_resources.resource_filename(
                         'test_devpi_server', 'importexportdata'))
-                if request.param:
-                    self.mapp1 = makemapp(
-                        options=("--export", self.exportdir) + options)
-                else:
-                    from devpi_server.main import set_state_version
-                    self.mapp1 = makemapp()
-                    set_state_version(self.mapp1.xom.config)
-                    self.options = options
+                self.mapp1 = makemapp()
+                set_state_version(self.mapp1.xom.config)
+                self.options = options
 
             def export(self, initnodeinfo=True):
-                if request.param:
-                    if initnodeinfo:
-                        self.mapp1.xom.config.init_nodeinfo()
-                    assert self.mapp1.xom.main() == 0
-                else:
-                    from devpi_server.importexport import export
-                    argv = [
-                        "devpi-export",
-                        "--serverdir", self.mapp1.xom.config.serverdir]
-                    argv.extend(self.options)
-                    argv.extend(["--storage", storage_info["name"]])
-                    argv.append(self.exportdir)
-                    assert export(argv=argv) == 0
+                from devpi_server.importexport import export
+                argv = [
+                    "devpi-export",
+                    "--serverdir", self.mapp1.xom.config.serverdir]
+                argv.extend(self.options)
+                argv.extend(["--storage", storage_info["name"]])
+                argv.append(self.exportdir)
+                assert export(argv=argv) == 0
 
             def import_testdata(self, name, options=()):
+                from devpi_server.importexport import import_
                 path = self.testdatadir.join(name).strpath
-                if request.param:
-                    mapp = makemapp(
-                        options=("--import", path) + options)
-                    mapp.xom.config.init_nodeinfo()
-                    assert mapp.xom.main() == 0
-                else:
-                    from devpi_server.importexport import import_
-                    serverdir = gentmp()
-                    argv = [
-                        "devpi-import",
-                        "--no-events",
-                        "--serverdir", serverdir]
-                    argv.extend(options)
-                    argv.extend(["--storage", storage_info["name"]])
-                    argv.append(path)
-                    assert import_(argv=argv) == 0
-                    mapp = makemapp(options=["--serverdir", serverdir])
+                serverdir = gentmp()
+                argv = [
+                    "devpi-import",
+                    "--no-events",
+                    "--serverdir", serverdir]
+                argv.extend(options)
+                argv.extend(["--storage", storage_info["name"]])
+                argv.append(path)
+                assert import_(argv=argv) == 0
+                mapp = makemapp(options=["--serverdir", serverdir])
                 return mapp
 
             def new_import(self, options=(), plugin=None):
-                if request.param:
-                    mapp2 = makemapp(
-                        options=("--import", str(self.exportdir)) + options)
-                    if plugin is not None:
-                        mapp2.xom.config.pluginmanager.register(plugin)
-                    mapp2.xom.config.init_nodeinfo()
-                    assert mapp2.xom.main() == 0
-                else:
-                    from devpi_server.config import get_pluginmanager
-                    from devpi_server.importexport import import_
-                    serverdir = gentmp()
-                    argv = [
-                        "devpi-import",
-                        "--no-events",
-                        "--serverdir", serverdir]
-                    argv.extend(options)
-                    argv.extend(["--storage", storage_info["name"]])
-                    argv.append(self.exportdir)
-                    pm = get_pluginmanager()
-                    pm.register(plugin)
-                    assert import_(pluginmanager=pm, argv=argv) == 0
-                    mapp2 = makemapp(options=["--serverdir", serverdir])
-                    if plugin is not None:
-                        mapp2.xom.config.pluginmanager.register(plugin)
+                from devpi_server.config import get_pluginmanager
+                from devpi_server.importexport import import_
+                serverdir = gentmp()
+                argv = [
+                    "devpi-import",
+                    "--no-events",
+                    "--serverdir", serverdir]
+                argv.extend(options)
+                argv.extend(["--storage", storage_info["name"]])
+                argv.append(self.exportdir)
+                pm = get_pluginmanager()
+                pm.register(plugin)
+                assert import_(pluginmanager=pm, argv=argv) == 0
+                mapp2 = makemapp(options=["--serverdir", serverdir])
+                if plugin is not None:
+                    mapp2.xom.config.pluginmanager.register(plugin)
                 return mapp2
         return ImpExp
 
@@ -413,6 +348,94 @@ class TestImportExport:
         assert 'root/pypi!Jo' in record.message
         (record,) = caplog.getrecords('You could also try to edit')
         assert 'dataindex.json' in record.message
+
+    @pytest.mark.parametrize("norootpypi", [False, True])
+    def test_import_no_user(self, caplog, impexp, norootpypi):
+        from devpi_server.main import _pypi_ixconfig_default
+        options = ()
+        if norootpypi:
+            options = ('--no-root-pypi',)
+        mapp = impexp.import_testdata('nouser', options=options)
+        with mapp.xom.keyfs.transaction(write=False):
+            user = mapp.xom.model.get_user("root")
+            assert user is not None
+            stage = mapp.xom.model.getstage("root/pypi")
+            if norootpypi:
+                assert stage is None
+            else:
+                assert stage.ixconfig == _pypi_ixconfig_default
+
+    @pytest.mark.parametrize("norootpypi", [False, True])
+    def test_import_no_root_pypi(self, caplog, impexp, norootpypi):
+        from devpi_server.main import _pypi_ixconfig_default
+        options = ()
+        if norootpypi:
+            options = ('--no-root-pypi',)
+        mapp = impexp.import_testdata('nouser', options=options)
+        with mapp.xom.keyfs.transaction(write=False):
+            user = mapp.xom.model.get_user("root")
+            assert user is not None
+            stage = mapp.xom.model.getstage("root/pypi")
+            if norootpypi:
+                assert stage is None
+            else:
+                assert stage.ixconfig == _pypi_ixconfig_default
+
+    def test_include_mirrordata(self, caplog, makeimpexp, maketestapp, pypistage):
+        impexp = makeimpexp(options=('--include-mirrored-files',))
+        mapp1 = impexp.mapp1
+        testapp = maketestapp(mapp1.xom)
+        api = mapp1.use('root/pypi')
+        pypistage.mock_simple(
+            "package",
+            '<a href="/package-1.0.zip" />\n'
+            '<a href="/package-1.1.zip#sha256=a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3" />\n'
+            + '<a href="/package-2.0.zip#sha256=b3a8e0e1f9ab1bfe3a36f231f676f78bb30a519d2b21e6c530c0eee8ebb4a5d0" data-requires-python="&gt;=3.5" />')
+        pypistage.mock_extfile("/package-1.1.zip", b"123")
+        pypistage.mock_extfile("/package-2.0.zip", b"456")
+        r = testapp.get(api.index + "/+simple/package/")
+        assert r.status_code == 200
+        # fetch some files, so they are included in the dump
+        (_, link1, link2) = sorted(x.attrs['href'] for x in r.html.select('a'))
+        baseurl = URL(r.request.url)
+        r = testapp.get(baseurl.joinpath(link1).url)
+        assert r.body == b"123"
+        r = testapp.get(baseurl.joinpath(link2).url)
+        assert r.body == b"456"
+        impexp.export()
+        mapp2 = impexp.new_import()
+        with mapp2.xom.keyfs.transaction(write=False):
+            stage = mapp2.xom.model.getstage(api.stagename)
+            stage.offline = True
+            projects = stage.list_projects_perstage()
+            assert projects == {'package'}
+            links = sorted(get_mutable_deepcopy(
+                stage.get_simplelinks_perstage("package")))
+            assert links == [
+                ('package-1.1.zip', 'root/pypi/+f/a66/5a45920422f9d/package-1.1.zip', None),
+                ('package-2.0.zip', 'root/pypi/+f/b3a/8e0e1f9ab1bfe/package-2.0.zip', '>=3.5')]
+
+    def test_mirrordata(self, caplog, impexp):
+        mapp = impexp.import_testdata('mirrordata')
+        with mapp.xom.keyfs.transaction(write=False):
+            stage = mapp.xom.model.getstage('root/pypi')
+            stage.offline = True
+            (link,) = stage.get_simplelinks_perstage("dddttt")
+            link = stage.get_link_from_entrypath(link[1])
+            assert link.project == "dddttt"
+            assert link.version == "0.1.dev1"
+            assert link.relpath == 'root/pypi/+f/100/7f0cd10aaa290/dddttt-0.1.dev1.tar.gz'
+            assert link.entry.hash_spec == 'sha256=1007f0cd10aaa290eb84f092e786639bbe930b7f2169f51f755a0f50a6aba489'
+
+    def test_modifiedpypi(self, caplog, impexp):
+        mapp = impexp.import_testdata('modifiedpypi')
+        with mapp.xom.keyfs.transaction(write=False):
+            stage = mapp.xom.model.getstage('root/pypi')
+            # test that we actually get the config from the import and not
+            # the default PyPI settings
+            assert stage.ixconfig['title'] == 'Modified PyPI'
+            assert stage.ixconfig['mirror_url'] == 'https://example.com/simple/'
+            assert stage.ixconfig['mirror_web_url_fmt'] == 'https://example.com/project/{name}/'
 
     def test_normalization(self, caplog, impexp):
         mapp = impexp.import_testdata('normalization')
@@ -938,9 +961,8 @@ class TestImportExport:
 
         impexp.export()
 
-        with pytest.raises(InvalidIndexconfig) as excinfo:
+        with pytest.raises(InvalidIndexconfig, match="uploadtrigger_jenkins"):
             impexp.new_import()
-        assert "uploadtrigger_jenkins" in excinfo.value.args[0][0]
 
     def test_plugin_index_config(self, impexp):
         class Plugin:
