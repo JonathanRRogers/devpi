@@ -108,7 +108,7 @@ def devpipostgresql_postgresql(request):
             if pg_ssl:
                 # Make client certificate for user and authenticate with it.
                 client_cert = ca.cert_for_host(user)
-                settings['ssl_check_hostname'] = 'True'
+                settings['ssl_check_hostname'] = 'yes'
                 settings['ssl_ca_certs'] = tmpdir.join('ca.pem').strpath
                 settings['ssl_certfile'] = client_cert
 

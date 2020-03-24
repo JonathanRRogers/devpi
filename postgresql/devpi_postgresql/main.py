@@ -11,6 +11,8 @@ import os
 import pg8000
 import py
 import time
+from distutils.util import strtobool
+import ssl
 
 
 devpiserver_hookimpl = HookimplMarker("devpiserver")
@@ -174,7 +176,7 @@ class Storage:
     unix_sock = None
     user = "devpi"
     password = None
-    ssl_opts = None
+    ssl_context = None
 
     def __init__(self, basedir, notify_on_commit, cache_size, settings=None):
         if settings is None:
@@ -184,10 +186,16 @@ class Storage:
                 setattr(self, key, settings[key])
 
         if any(key in settings for key in self.SSL_OPT_KEYS):
-            self.ssl_opts = ssl_opts = {}
-            for key in self.SSL_OPT_KEYS:
-                if key in settings:
-                    ssl_opts[key[4:]] = settings[key]
+            self.ssl_context = ssl_context = ssl.create_default_context(
+                cafile=settings.get('ssl_ca_certs'))
+            if 'ssl_certfile' in settings:
+                ssl_context.load_cert_chain(settings['ssl_certfile'],
+                                            keyfile=settings.get('ssl_keyfile'))
+            if (
+                'ssl_check_hostname' in settings
+                and not strtobool(settings['ssl_check_hostname'])
+            ):
+                ssl_context.check_hostname = False
 
         self.basedir = basedir
         self._notify_on_commit = notify_on_commit
@@ -216,7 +224,7 @@ class Storage:
             port=int(self.port),
             unix_sock=self.unix_sock,
             password=self.password,
-            ssl=self.ssl_opts,
+            ssl_context=self.ssl_context,
             timeout=60)
         sqlconn.text_factory = bytes
         conn = Connection(sqlconn, self)
